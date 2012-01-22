@@ -370,18 +370,23 @@ def run_repl(env):
 
 
 
-# this is a thin wrapper around THIS module (we patch sys.modules[__name__]).
-# this is in the case that the user does a "from pbs import whatever"
-# in other words, they only want to import certain programs, not the whole
-# system PATH worth of commands.  in this case, we just proxy the
-# import lookup to our Environment class
-class SelfWrapper(object):
-    def __init__(self, self_module):
-        self.self_module = self_module
-        self.env = Environment(globals())
-    
-    def __getattr__(self, name):
-        return self.env[name]
+class ImportHooks(object):
+  env = Environment(globals())
+  def find_module(self, module_name, package_path=None):
+    start, sep, end = module_name.partition('.')
+    if start == "pbs":
+      return self
+
+  def load_module(self, module_name):
+    start, sep, end = module_name.partition('.')
+    if sep:
+      return self.env[end]
+    raise ImportError("Cannot load " + module_name)
+import sys
+__path__ = []
+sys.meta_path.append(ImportHooks())
+__all__ = Environment(globals())
+
 
 
 
@@ -403,7 +408,7 @@ else:
     # are we being imported from a REPL? don't allow
     if script == "<stdin>":
         raise RuntimeError, "Do not import PBS from the shell."
-        
+    
     # we're being imported from a script
     else:
 
@@ -434,11 +439,3 @@ from anywhere other than a stand-alone script.  Do a 'from pbs import program' i
             # (which would be running it "again", since we just executed the script
             # with exec
             exit(exit_code)
-
-        # this is the least magical choice.  we're importing either a
-        # selection of programs or we're just importing the pbs module.
-        # in this case, let's just wrap ourselves with a module that has
-        # __getattr__ so our program lookups can be done there
-        else:
-            self = sys.modules[__name__]
-            sys.modules[__name__] = SelfWrapper(self)
